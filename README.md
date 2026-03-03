@@ -39,9 +39,16 @@ The scraper can run on a daily schedule via CI — no servers needed. New events
 
 ### GitHub Actions
 
-1. Fork this repo (or push to your own GitHub)
+1. Fork this repo
 2. Go to **Settings > Actions > General** and enable workflows
-3. Runs daily at 6:00 AM UTC. Trigger manually from **Actions > NRC Event Scraper > Run workflow**
+3. Go to **Actions > NRC Event Scraper > Run workflow**
+4. To get all historical data, run **backfill** in chunks:
+   - Select mode: `backfill`, years: `1999-2005` → Run
+   - Wait for it to finish (~1–2 hrs), then: `2006-2012` → Run
+   - Then: `2013-2019`, then: `2020-2026`
+5. After the initial backfill, the daily schedule keeps it current automatically
+
+No API keys, servers, or local setup needed — everything runs on GitHub's free tier (2,000 CI minutes/month).
 
 ### GitLab CI
 

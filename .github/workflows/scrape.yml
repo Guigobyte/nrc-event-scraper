@@ -4,7 +4,20 @@ on:
   schedule:
     # Run daily at 6:00 AM UTC (1:00 AM ET, after NRC publishes)
     - cron: "0 6 * * *"
-  workflow_dispatch: # Allow manual runs from GitHub UI
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        required: true
+        default: "incremental"
+        type: choice
+        options:
+          - incremental
+          - backfill
+      years:
+        description: "Years to backfill (e.g. '2020-2026' or '2015'). Only used in backfill mode."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -12,6 +25,7 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 350  # just under 6hr GitHub limit
     steps:
       - uses: actions/checkout@v4
 
@@ -24,8 +38,34 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Run incremental scrape (current year)
-        run: uv run nrc-scraper incremental
+      - name: Run scraper
+        run: |
+          MODE="${{ inputs.mode || 'incremental' }}"
+          if [ "$MODE" = "backfill" ]; then
+            YEARS="${{ inputs.years }}"
+            if [ -n "$YEARS" ]; then
+              # Support range (2020-2026) or single year (2020)
+              if echo "$YEARS" | grep -q '-'; then
+                START=$(echo "$YEARS" | cut -d'-' -f1)
+                END=$(echo "$YEARS" | cut -d'-' -f2)
+                YEAR_ARGS=""
+                for y in $(seq "$START" "$END"); do
+                  YEAR_ARGS="$YEAR_ARGS --years $y"
+                done
+                echo "Backfilling years $START–$END"
+                uv run nrc-scraper backfill $YEAR_ARGS
+              else
+                echo "Backfilling year $YEARS"
+                uv run nrc-scraper backfill --years "$YEARS"
+              fi
+            else
+              echo "Backfilling all years (this will take several hours)"
+              uv run nrc-scraper backfill
+            fi
+          else
+            echo "Running incremental scrape"
+            uv run nrc-scraper incremental
+          fi
 
       - name: Show stats
         run: uv run nrc-scraper stats
@@ -38,6 +78,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No new events to commit"
           else
-            git commit -m "data: daily scrape $(date -u +%Y-%m-%d)"
+            EVENT_COUNT=$(uv run nrc-scraper stats 2>/dev/null | grep "Total unique" | grep -o '[0-9]*' || echo "?")
+            git commit -m "data: scrape $(date -u +%Y-%m-%d) ($EVENT_COUNT events)"
             git push
           fi
