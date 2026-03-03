@@ -34,11 +34,15 @@ class Settings(BaseSettings):
     # ── Rate limiting ──────────────────────────────────────
     rate_limit_qps: float = 0.5  # < 1 req/sec hard rule
     rate_limit_jitter: float = 0.5  # seconds of random jitter added
-    max_concurrency: int = 3  # asyncio.Semaphore cap
+    max_concurrency: int = 1  # sequential — NRC servers are slow, don't pile up
 
     # ── Retry ──────────────────────────────────────────────
     max_retries: int = 4
     retry_backoff_base: float = 2.0  # exponential base in seconds
+
+    # ── Timeouts ───────────────────────────────────────────
+    connect_timeout: float = 30.0  # NRC TLS handshake can be slow
+    read_timeout: float = 120.0  # NRC pages can take 60-90s to respond
 
     # ── HTTP headers (NEVER change UA mid-session) ─────────
     user_agent: str = (
@@ -65,4 +69,5 @@ class Settings(BaseSettings):
             "Accept-Language": self.accept_language,
             "Referer": self.referer,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Connection": "keep-alive",
         }

@@ -42,8 +42,12 @@ class NRCClient:
     async def __aenter__(self) -> NRCClient:
         self._http = httpx.AsyncClient(
             headers=self.settings.headers,
-            timeout=httpx.Timeout(30.0, connect=10.0),
+            timeout=httpx.Timeout(
+                self.settings.read_timeout,
+                connect=self.settings.connect_timeout,
+            ),
             follow_redirects=True,
+            http2=False,  # NRC only supports HTTP/1.1
         )
         return self
 
