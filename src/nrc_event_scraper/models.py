@@ -18,6 +18,7 @@ class EventCategory(str, enum.Enum):
     MATERIAL = "Material"
     FUEL_CYCLE = "Fuel Cycle"
     AGREEMENT_STATE = "Agreement State"
+    GENERAL = "General Information or Other"
     UNKNOWN = "Unknown"
 
 

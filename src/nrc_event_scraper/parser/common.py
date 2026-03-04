@@ -75,6 +75,8 @@ def parse_category(text: str) -> EventCategory:
         return EventCategory.FUEL_CYCLE
     if "MATERIAL" in text or "NON-AGREEMENT" in text:
         return EventCategory.MATERIAL
+    if "GENERAL" in text or "INFORMATION" in text:
+        return EventCategory.GENERAL
     return EventCategory.UNKNOWN
 
 

@@ -17,6 +17,7 @@ from nrc_event_scraper.db import ScraperDB
 from nrc_event_scraper.parser.detect import detect_format
 from nrc_event_scraper.parser.legacy_parser import parse_legacy_page
 from nrc_event_scraper.parser.modern_parser import parse_modern_page
+from nrc_event_scraper.parser.plaintext_parser import parse_plaintext_page
 from nrc_event_scraper.scraper.client import NRCClient
 from nrc_event_scraper.scraper.index_scraper import (
     extract_daily_page_urls,
@@ -143,6 +144,7 @@ class Orchestrator:
             html, status, sha256 = await client.fetch(url)
 
             if status == 404 or not html:
+                logger.warning("Fetch failed for %s: HTTP %d", url, status)
                 self.db.mark_page_error(url, f"HTTP {status}")
                 return False
 
@@ -173,14 +175,17 @@ class Orchestrator:
                 report = parse_modern_page(html, page_url=url)
             elif fmt == "legacy":
                 report = parse_legacy_page(html, page_url=url)
+            elif fmt == "plaintext":
+                report = parse_plaintext_page(html, page_url=url)
             elif fmt == "empty":
                 self.db.mark_page_parsed(url, event_count=0, html_format="empty")
                 return 0
             else:
+                logger.error("Unknown format for %s: %s", url, fmt)
                 self.db.mark_page_error(url, f"Unknown format: {fmt}")
                 return -1
         except Exception as e:
-            logger.error("Parse error for %s: %s", url, e)
+            logger.error("Parse error for %s: %s", url, e, exc_info=True)
             self.db.mark_page_error(url, f"Parse error: {e}")
             return -1
 

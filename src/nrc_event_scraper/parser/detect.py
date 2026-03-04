@@ -1,9 +1,11 @@
 """Format detection: route HTML to the correct parser.
 
-Returns "modern" | "legacy" | "empty" | "unknown" based on DOM structure.
+Returns "modern" | "legacy" | "plaintext" | "empty" | "unknown" based on DOM structure.
 """
 
 from __future__ import annotations
+
+import re
 
 from bs4 import BeautifulSoup
 
@@ -11,8 +13,9 @@ from bs4 import BeautifulSoup
 def detect_format(html: str) -> str:
     """Detect which NRC page format is present.
 
-    - "modern": Drupal 10 with <div class="grid border" id="enXXXXX"> containers (Nov 2020+)
-    - "legacy": Table-based with <a name="enXXXXX"> anchors (1999–Oct 2020)
+    - "modern": Drupal 10 with <div class="grid border" id="enXXXXX"> containers (2021+)
+    - "legacy": Table-based with <a name="enXXXXX"> anchors (2004–2020)
+    - "plaintext": Fixed-width ASCII text inside <pre> tag (1999–2003)
     - "empty": Page with "No events found"
     - "unknown": Unrecognized structure
     """
@@ -38,6 +41,18 @@ def detect_format(html: str) -> str:
     legacy_anchors = soup.find_all("a", attrs={"name": lambda v: v and v.startswith("en")})
     if legacy_anchors:
         return "legacy"
+
+    # Plaintext format: <pre> tag containing "Event Number:" with ASCII box drawing
+    # The header section (title, date range, event number list) can push the first
+    # "Event Number:" past 500 chars, so we check the first 1000.
+    pre = soup.find("pre")
+    if pre:
+        pre_text = pre.get_text()
+        if re.search(r"Event Number:\s*\d+", pre_text[:1000]):
+            return "plaintext"
+        # Some old plaintext pages have no events — short <pre> with just a header
+        if len(pre_text.strip()) < 400:
+            return "empty"
 
     # Could be an empty page without the "No events found" text
     # (some old pages are just empty shells on the new Drupal site)
