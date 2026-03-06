@@ -1,8 +1,9 @@
 """Orchestrator: coordinates fetch → archive → detect → parse → store.
 
-Two modes:
+Three modes:
 - Backfill: discover all year indexes → find all daily pages → fetch/parse any pending
 - Incremental: check current year index → fetch/parse only new pages
+- Reparse: re-parse all archived HTML without re-fetching (for parser bug fixes)
 
 Idempotent via SQLite state: pages already fetched/parsed are skipped.
 """
@@ -115,6 +116,158 @@ class Orchestrator:
         """Incremental: check current year for new pages, fetch and parse them."""
         current_year = datetime.now(timezone.utc).year
         return await self.backfill(years=[current_year])
+
+    def reparse(self, years: list[int] | None = None) -> dict:
+        """Re-parse all archived HTML using current parser code.
+
+        Skips fetch phase entirely. Rewrites JSONL files from scratch.
+        Use after fixing parser bugs to regenerate event data from archived HTML.
+
+        Args:
+            years: Specific years to reparse. None = all years with archived HTML.
+
+        Returns summary stats dict.
+        """
+        if years is None:
+            years = self._detect_archived_years()
+
+        run_id = self.db.start_run("reparse")
+        stats = {
+            "pages_reparsed": 0, "events_found": 0,
+            "errors": 0, "years_processed": 0,
+        }
+
+        try:
+            for year in years:
+                logger.info("Reparsing year %d", year)
+                year_stats = self._reparse_year(year)
+                stats["pages_reparsed"] += year_stats["pages"]
+                stats["events_found"] += year_stats["events"]
+                stats["errors"] += year_stats["errors"]
+                stats["years_processed"] += 1
+
+            self.db.finish_run(
+                run_id,
+                pages_parsed=stats["pages_reparsed"],
+                events_found=stats["events_found"],
+                errors=stats["errors"],
+            )
+        except Exception as e:
+            logger.error("Reparse failed: %s", e)
+            self.db.finish_run(run_id, errors=stats["errors"], status="failed")
+            raise
+
+        return stats
+
+    def _detect_archived_years(self) -> list[int]:
+        """Scan the HTML archive directory for year subdirectories."""
+        if not self.archive.html_dir.exists():
+            return []
+        years = []
+        for child in sorted(self.archive.html_dir.iterdir()):
+            if child.is_dir() and child.name.isdigit():
+                years.append(int(child.name))
+        return years
+
+    def _reparse_year(self, year: int) -> dict:
+        """Reparse all archived HTML for a single year.
+
+        Collects all events in memory, then does a single atomic JSONL rewrite.
+        """
+        year_stats = {"pages": 0, "events": 0, "errors": 0}
+
+        # Reset DB state for this year
+        reset_count = self.db.reset_pages_for_reparse(year)
+        logger.info("Year %d: reset %d pages to fetched status", year, reset_count)
+
+        # Clear old events from DB for this year
+        cleared = self.db.clear_events_for_year(year)
+        logger.info("Year %d: cleared %d old event rows from DB", year, cleared)
+
+        # Get archived URLs from disk (source of truth)
+        archived_urls = self.archive.list_archived_urls(year, self.settings.nrc_base_url)
+        if not archived_urls:
+            logger.warning("Year %d: no archived HTML files found", year)
+            return year_stats
+
+        # Ensure all archived pages exist in the DB
+        for url in archived_urls:
+            report_date = url_to_report_date(url)
+            self.db.upsert_page(url, year, report_date)
+            page = self.db.get_page(url)
+            if page and page["status"] == "pending":
+                html = self.archive.load(url)
+                fmt = detect_format(html) if html else None
+                self.db.mark_page_fetched(url, html_sha256="from-archive", html_format=fmt)
+
+        # Parse each page, collecting all events
+        all_events: list = []
+        now = datetime.now(timezone.utc)
+
+        for url in archived_urls:
+            count = self._parse_page_for_reparse(url, year, all_events, now)
+            if count >= 0:
+                year_stats["pages"] += 1
+                year_stats["events"] += count
+            else:
+                year_stats["errors"] += 1
+
+        # Atomic rewrite of the year's JSONL
+        written = self.writer.rewrite_events(all_events, year)
+        logger.info(
+            "Year %d: reparsed %d pages, %d events (%d unique written)",
+            year, year_stats["pages"], year_stats["events"], written,
+        )
+
+        return year_stats
+
+    def _parse_page_for_reparse(
+        self, url: str, year: int, events_acc: list, now: datetime
+    ) -> int:
+        """Parse a single archived page for reparse, accumulating events.
+
+        Returns event count or -1 on error.
+        """
+        html = self.archive.load(url)
+        if not html:
+            self.db.mark_page_error(url, "Archived HTML not found")
+            return -1
+
+        fmt = detect_format(html)
+
+        try:
+            if fmt == "modern":
+                report = parse_modern_page(html, page_url=url)
+            elif fmt == "legacy":
+                report = parse_legacy_page(html, page_url=url)
+            elif fmt == "plaintext":
+                report = parse_plaintext_page(html, page_url=url)
+            elif fmt == "empty":
+                self.db.mark_page_parsed(url, event_count=0, html_format="empty")
+                return 0
+            else:
+                logger.error("Unknown format for %s: %s", url, fmt)
+                self.db.mark_page_error(url, f"Unknown format: {fmt}")
+                return -1
+        except Exception as e:
+            logger.error("Parse error for %s: %s", url, e, exc_info=True)
+            self.db.mark_page_error(url, f"Parse error: {e}")
+            return -1
+
+        for event in report.events:
+            event.scraped_at = now
+
+        events_acc.extend(report.events)
+
+        for event in report.events:
+            self.db.upsert_event(event.event_number, url, event.category.value)
+
+        self.db.mark_page_parsed(url, event_count=len(report.events), html_format=fmt)
+
+        if report.parse_errors:
+            logger.warning("Parse warnings for %s: %s", url, report.parse_errors)
+
+        return len(report.events)
 
     async def _discover_year(self, client: NRCClient, year: int) -> int:
         """Fetch year index and register discovered daily page URLs in the DB."""

@@ -180,6 +180,35 @@ class ScraperDB:
                 (url,),
             )
 
+    def reset_pages_for_reparse(self, year: int) -> int:
+        """Reset parsed/error pages to 'fetched' for re-parsing.
+
+        Preserves html_sha256 and html_format (no re-fetch needed).
+        Skips pages still in 'pending' status (never fetched).
+        Returns count of pages reset.
+        """
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE pages
+                   SET status = 'fetched', parse_ts = NULL, error_msg = NULL, event_count = 0
+                   WHERE year = ? AND status != 'pending'""",
+                (year,),
+            )
+            return cursor.rowcount
+
+    def clear_events_for_year(self, year: int) -> int:
+        """Delete all event rows for pages belonging to a given year.
+
+        Returns count of deleted rows.
+        """
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """DELETE FROM events
+                   WHERE page_url IN (SELECT url FROM pages WHERE year = ?)""",
+                (year,),
+            )
+            return cursor.rowcount
+
     # ── Event operations ───────────────────────────────────
 
     def upsert_event(self, event_number: int, page_url: str, category: str) -> None:
