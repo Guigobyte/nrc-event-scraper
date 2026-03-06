@@ -14,8 +14,9 @@ on:
         options:
           - incremental
           - backfill
+          - reparse
       years:
-        description: "Years to backfill (e.g. '2020-2026' or '2015'). Only used in backfill mode."
+        description: "Years to backfill/reparse (e.g. '2020-2026' or '2015'). Used in backfill and reparse modes."
         required: false
         type: string
 
@@ -60,6 +61,23 @@ jobs:
               echo "Backfilling all years (this will take several hours)"
               uv run nrc-scraper backfill
             fi
+          elif [ "$MODE" = "reparse" ]; then
+            YEARS="${{ inputs.years }}"
+            if [ -n "$YEARS" ]; then
+              if echo "$YEARS" | grep -q '-'; then
+                START=$(echo "$YEARS" | cut -d'-' -f1)
+                END=$(echo "$YEARS" | cut -d'-' -f2)
+                CSV=$(seq "$START" "$END" | paste -sd, -)
+                echo "Reparsing years $START-$END"
+                uv run nrc-scraper reparse --years "$CSV"
+              else
+                echo "Reparsing year $YEARS"
+                uv run nrc-scraper reparse --years "$YEARS"
+              fi
+            else
+              echo "Reparsing all archived years"
+              uv run nrc-scraper reparse
+            fi
           else
             echo "Running incremental scrape"
             uv run nrc-scraper incremental
@@ -72,7 +90,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/events/ data/scraper.db
+          git add data/events/ data/scraper.db data/html/
           if git diff --cached --quiet; then
             echo "No new events to commit"
           else

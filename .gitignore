@@ -5,9 +5,6 @@ __pycache__/
 dist/
 .venv/
 
-# Raw HTML archive (large, keep local only)
-data/html/
-
 # IDE
 .vscode/
 .idea/

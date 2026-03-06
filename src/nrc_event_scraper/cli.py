@@ -89,6 +89,37 @@ def incremental(ctx: click.Context) -> None:
 
 
 @cli.command()
+@click.option(
+    "--years",
+    type=str,
+    default=None,
+    help="Comma-separated years to reparse (e.g., '2024,2025,2026'). Default: all archived years.",
+)
+@click.pass_context
+def reparse(ctx: click.Context, years: str | None) -> None:
+    """Re-parse archived HTML using current parser code.
+
+    Skips fetching — only uses HTML already saved in data/html/.
+    Rewrites JSONL files from scratch to fix parser bugs in existing data.
+    """
+    settings: Settings = ctx.obj["settings"]
+
+    year_list: list[int] | None = None
+    if years:
+        year_list = [int(y.strip()) for y in years.split(",")]
+
+    click.echo(f"Starting reparse (years={year_list or 'all archived'})")
+    orch = Orchestrator(settings)
+    stats = orch.reparse(years=year_list)
+
+    click.echo("\nReparse complete:")
+    click.echo(f"  Years processed:  {stats['years_processed']}")
+    click.echo(f"  Pages reparsed:   {stats['pages_reparsed']}")
+    click.echo(f"  Events found:     {stats['events_found']}")
+    click.echo(f"  Errors:           {stats['errors']}")
+
+
+@cli.command()
 @click.pass_context
 def stats(ctx: click.Context) -> None:
     """Show scraper statistics."""

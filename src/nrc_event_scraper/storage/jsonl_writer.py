@@ -59,6 +59,26 @@ class JSONLWriter:
                     continue
         return numbers
 
+    def rewrite_events(self, events: list[NRCEvent], year: int) -> int:
+        """Rewrite the JSONL file for a year from scratch.
+
+        Replaces the entire file. Deduplicates by event_number
+        (last occurrence wins to match chronological scrape order).
+        Returns the number of unique events written.
+        """
+        path = self.events_dir / f"{year}.jsonl"
+
+        # Deduplicate: last occurrence wins
+        seen: dict[int, NRCEvent] = {}
+        for event in events:
+            seen[event.event_number] = event
+
+        with open(path, "w") as f:
+            for event in seen.values():
+                f.write(event.model_dump_json() + "\n")
+
+        return len(seen)
+
     def read_events(self, year: int) -> list[NRCEvent]:
         """Read all events from a year's JSONL file."""
         path = self.events_dir / f"{year}.jsonl"

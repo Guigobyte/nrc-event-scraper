@@ -50,6 +50,21 @@ class HTMLArchive:
         gz_path = self.html_dir / str(year) / f"{filename}.html.gz"
         return gz_path.exists()
 
+    def list_archived_urls(self, year: int, base_url: str) -> list[str]:
+        """List all archived URLs for a year, reconstructed from filenames.
+
+        Returns sorted list of URLs like '{base_url}/2026/20260303en'.
+        """
+        year_dir = self.html_dir / str(year)
+        if not year_dir.exists():
+            return []
+        urls = []
+        for gz_file in sorted(year_dir.glob("*.html.gz")):
+            # 20260303en.html.gz -> 20260303en
+            filename = gz_file.stem.removesuffix(".html")
+            urls.append(f"{base_url}/{year}/{filename}")
+        return urls
+
     def _url_to_path_parts(self, url: str) -> tuple[int, str]:
         """Extract year and filename from URL.
 
