@@ -1,5 +1,10 @@
 name: NRC Event Scraper
 
+# Only allow one scraping workflow to run at a time
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 on:
   schedule:
     # Run daily at 6:00 AM UTC (1:00 AM ET, after NRC publishes)
