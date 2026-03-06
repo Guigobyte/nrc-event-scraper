@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -186,3 +188,20 @@ def validate(ctx: click.Context, reconciliation_file: str) -> None:
         click.echo(f"\n  Missing event numbers (first 20): {sorted(missing)[:20]}")
     if extra:
         click.echo(f"\n  Extra event numbers (first 20): {sorted(extra)[:20]}")
+
+
+@cli.command()
+@click.option("--port", type=int, default=8501, help="Port for the Streamlit server")
+@click.pass_context
+def dashboard(ctx: click.Context, port: int) -> None:
+    """Launch the interactive NRC Event Dashboard."""
+    app_path = Path(__file__).resolve().parent.parent.parent / "dashboard" / "app.py"
+    if not app_path.exists():
+        click.echo(f"Dashboard not found at {app_path}")
+        raise SystemExit(1)
+
+    click.echo(f"Starting NRC Event Dashboard on port {port}...")
+    subprocess.run(
+        [sys.executable, "-m", "streamlit", "run", str(app_path), "--server.port", str(port)],
+        check=True,
+    )

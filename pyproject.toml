@@ -24,6 +24,13 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
 ]
+dashboard = [
+    "streamlit>=1.35",
+    "pandas>=2.2",
+    "plotly>=5.22",
+    "wordcloud>=1.9",
+    "matplotlib>=3.9",
+]
 
 [project.scripts]
 nrc-scraper = "nrc_event_scraper.cli:cli"
